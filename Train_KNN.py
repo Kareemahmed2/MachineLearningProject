@@ -1,6 +1,5 @@
 """
-k-NN Training Script for Material Stream Identification
-Includes data augmentation, feature extraction, hyperparameter tuning, and rejection mechanism
+k-NN Training Script - Optimized for Higher Accuracy
 """
 
 import numpy as np
@@ -15,9 +14,9 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 from tqdm import tqdm
 
 from config import (
-    MODELS_PATH, CLASS_NAMES, PRIMARY_CLASSES, CLASS_TO_ID,
-    KNN_K_RANGE, KNN_WEIGHTS, KNN_METRICS, KNN_PCA_VARIANCE,
-    KNN_CONFIDENCE_THRESHOLD, KNN_DISTANCE_THRESHOLD_PERCENTILE,
+    MODELS_PATH, PRIMARY_CLASSES,
+    KNN_PCA_VARIANCE, KNN_CONFIDENCE_THRESHOLD,
+    KNN_DISTANCE_THRESHOLD_PERCENTILE,
     TEST_SIZE, RANDOM_STATE, CV_FOLDS, TARGET_SAMPLES_PER_CLASS
 )
 from ImageLoader import load_dataset, augment_images
@@ -25,7 +24,7 @@ from FeatureExtractor_KNN import extract_features_knn
 
 
 def extract_all_features(images, desc="Extracting features"):
-    """Extract features from all images with progress bar."""
+    """Extract features with progress bar."""
     features = []
     for img in tqdm(images, desc=desc):
         features.append(extract_features_knn(img))
@@ -33,37 +32,18 @@ def extract_all_features(images, desc="Extracting features"):
 
 
 def calculate_distance_threshold(model, X_train, percentile=95):
-    """
-    Calculate distance threshold for unknown class rejection.
-    
-    Uses training set distances to find threshold beyond which
-    samples are likely out-of-distribution.
-    """
-    # Get distances to nearest neighbors for all training samples
+    """Calculate distance threshold for rejection."""
     distances, _ = model.kneighbors(X_train)
-    
-    # Average distance to k neighbors
     avg_distances = distances.mean(axis=1)
-    
-    # Use percentile as threshold
     threshold = np.percentile(avg_distances, percentile)
-    
     return threshold
 
 
 def calculate_voting_confidence(model, X_test):
-    """
-    Calculate voting confidence for k-NN predictions.
-    
-    Returns the proportion of neighbors voting for the winning class.
-    """
-    # Get neighbor indices
+    """Calculate voting confidence for predictions."""
     distances, indices = model.kneighbors(X_test)
-    
-    # Get labels of neighbors
     neighbor_labels = model._y[indices]
     
-    # Calculate voting confidence
     confidences = []
     for i in range(len(X_test)):
         labels = neighbor_labels[i]
@@ -75,12 +55,12 @@ def calculate_voting_confidence(model, X_test):
 
 
 def train_knn():
-    """Main training function for k-NN classifier."""
+    """Main k-NN training function."""
     print("=" * 60)
     print("k-NN Training for Material Stream Identification")
     print("=" * 60)
     
-    # Step 1: Load dataset (only primary classes for training)
+    # Step 1: Load dataset
     print("\n[1/7] Loading dataset...")
     images, labels = load_dataset(include_unknown=False, balance=False)
     
@@ -101,7 +81,6 @@ def train_knn():
     X_train_img = np.array(X_train_img)
     y_train = np.array(y_train)
     
-    # Calculate augmentation percentage
     original_count = len(X_test_img) / TEST_SIZE * (1 - TEST_SIZE)
     aug_percentage = (len(X_train_img) - original_count) / original_count * 100
     print(f"  Augmentation increase: {aug_percentage:.1f}%")
@@ -114,7 +93,7 @@ def train_knn():
     print(f"  Feature extraction time: {time.time() - start_time:.1f}s")
     print(f"  Feature dimensions: {X_train.shape[1]}")
     
-    # Step 5: Preprocessing (Scaling + PCA)
+    # Step 5: Preprocessing
     print("\n[5/7] Preprocessing features...")
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -125,14 +104,16 @@ def train_knn():
     X_test_pca = pca.transform(X_test_scaled)
     print(f"  PCA components: {pca.n_components_} (explained variance: {KNN_PCA_VARIANCE*100:.0f}%)")
     
-    # Step 6: Hyperparameter tuning
+    # Step 6: Extended hyperparameter search
     print("\n[6/7] Training k-NN with GridSearchCV...")
     knn = KNeighborsClassifier()
     
+    # Extended parameter grid
     param_grid = {
-        'n_neighbors': KNN_K_RANGE,
-        'weights': KNN_WEIGHTS,
-        'metric': KNN_METRICS
+        'n_neighbors': [1, 3, 5, 7, 9, 11, 15],
+        'weights': ['uniform', 'distance'],
+        'metric': ['euclidean', 'cosine', 'manhattan', 'minkowski'],
+        'p': [1, 2, 3]  # Power parameter for minkowski
     }
     
     cv = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
@@ -161,26 +142,21 @@ def train_knn():
     accuracy = accuracy_score(y_test, y_pred)
     print(f"\n  Test Accuracy: {accuracy:.4f} ({accuracy*100:.2f}%)")
     
-    # Classification report
     print("\n  Classification Report:")
     print(classification_report(y_test, y_pred, target_names=PRIMARY_CLASSES))
     
-    # Confusion matrix
     print("\n  Confusion Matrix:")
     cm = confusion_matrix(y_test, y_pred)
     print(cm)
     
-    # Calculate distance threshold for unknown rejection
+    # Rejection thresholds
     print("\n  Calculating rejection thresholds...")
     distance_threshold = calculate_distance_threshold(
         best_model, X_train_pca, KNN_DISTANCE_THRESHOLD_PERCENTILE
     )
     print(f"  Distance threshold (p{KNN_DISTANCE_THRESHOLD_PERCENTILE}): {distance_threshold:.4f}")
     
-    # Calculate voting confidence
     confidences = calculate_voting_confidence(best_model, X_test_pca)
-    
-    # Evaluate with rejection (using both distance and voting)
     distances, _ = best_model.kneighbors(X_test_pca)
     avg_distances = distances.mean(axis=1)
     
@@ -198,7 +174,6 @@ def train_knn():
     
     os.makedirs(MODELS_PATH, exist_ok=True)
     
-    # Save threshold configuration
     threshold_config = {
         'distance_threshold': distance_threshold,
         'confidence_threshold': KNN_CONFIDENCE_THRESHOLD
@@ -209,7 +184,6 @@ def train_knn():
     joblib.dump(pca, os.path.join(MODELS_PATH, "knn_pca.pkl"))
     joblib.dump(threshold_config, os.path.join(MODELS_PATH, "knn_threshold.pkl"))
     
-    # Also save in root for easy access
     joblib.dump(best_model, "knn_model.pkl")
     joblib.dump(scaler, "knn_scaler.pkl")
     joblib.dump(pca, "knn_pca.pkl")
@@ -232,6 +206,5 @@ if __name__ == "__main__":
     print(f"  - Metric: {model.metric}")
     print(f"  - Test Accuracy: {accuracy*100:.2f}%")
     print(f"  - Distance Threshold: {thresholds['distance_threshold']:.4f}")
-    print(f"  - Confidence Threshold: {thresholds['confidence_threshold']:.2f}")
     print(f"  - Target: 85%+ accuracy")
     print(f"  - Status: {'✓ PASSED' if accuracy >= 0.85 else '✗ NEEDS IMPROVEMENT'}")

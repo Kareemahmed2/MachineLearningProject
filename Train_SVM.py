@@ -1,6 +1,5 @@
 """
-SVM Training Script for Material Stream Identification
-Includes data augmentation, feature extraction, hyperparameter tuning, and rejection mechanism
+SVM Training Script - Optimized for Higher Accuracy
 """
 
 import numpy as np
@@ -15,17 +14,17 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 from tqdm import tqdm
 
 from config import (
-    MODELS_PATH, CLASS_NAMES, PRIMARY_CLASSES, CLASS_TO_ID,
-    SVM_KERNEL, SVM_C_RANGE, SVM_GAMMA_RANGE, SVM_PCA_VARIANCE,
+    MODELS_PATH, PRIMARY_CLASSES,
+    SVM_KERNEL, SVM_PCA_VARIANCE,
     SVM_CONFIDENCE_THRESHOLD, TEST_SIZE, RANDOM_STATE, CV_FOLDS,
     TARGET_SAMPLES_PER_CLASS
 )
-from ImageLoader import load_dataset, augment_images, generate_unknown_samples
+from ImageLoader import load_dataset, augment_images
 from FeatureExtractor_SVM import extract_features_svm
 
 
 def extract_all_features(images, desc="Extracting features"):
-    """Extract features from all images with progress bar."""
+    """Extract features with progress bar."""
     features = []
     for img in tqdm(images, desc=desc):
         features.append(extract_features_svm(img))
@@ -33,38 +32,26 @@ def extract_all_features(images, desc="Extracting features"):
 
 
 def calculate_optimal_threshold(model, X_val, y_val, scaler, pca):
-    """
-    Calculate optimal confidence threshold for unknown class rejection.
-    
-    Uses validation set to find threshold that balances accuracy and rejection.
-    """
-    # Transform validation data
+    """Calculate optimal rejection threshold."""
     X_val_scaled = scaler.transform(X_val)
     X_val_pca = pca.transform(X_val_scaled)
     
-    # Get probabilities
     probs = model.predict_proba(X_val_pca)
     max_probs = probs.max(axis=1)
     
-    # Test different thresholds
     thresholds = np.arange(0.3, 0.8, 0.05)
     best_threshold = SVM_CONFIDENCE_THRESHOLD
     best_score = 0
     
     for thresh in thresholds:
         predictions = model.predict(X_val_pca)
-        
-        # Apply threshold
         confident_mask = max_probs >= thresh
         
         if confident_mask.sum() == 0:
             continue
         
-        # Calculate accuracy only on confident predictions
         confident_acc = accuracy_score(y_val[confident_mask], predictions[confident_mask])
         rejection_rate = 1 - confident_mask.mean()
-        
-        # Score: balance accuracy and not rejecting too much
         score = confident_acc * (1 - 0.5 * rejection_rate)
         
         if score > best_score:
@@ -76,12 +63,12 @@ def calculate_optimal_threshold(model, X_val, y_val, scaler, pca):
 
 
 def train_svm():
-    """Main training function for SVM classifier."""
+    """Main SVM training function."""
     print("=" * 60)
     print("SVM Training for Material Stream Identification")
     print("=" * 60)
     
-    # Step 1: Load dataset (only primary classes for training)
+    # Step 1: Load dataset
     print("\n[1/7] Loading dataset...")
     images, labels = load_dataset(include_unknown=False, balance=False)
     
@@ -96,13 +83,12 @@ def train_svm():
     print(f"  Training images: {len(X_train_img)}")
     print(f"  Test images: {len(X_test_img)}")
     
-    # Step 3: Data augmentation
+    # Step 3: Data augmentation (stronger, more samples)
     print("\n[3/7] Applying data augmentation...")
     X_train_img, y_train = augment_images(X_train_img, y_train, TARGET_SAMPLES_PER_CLASS)
     X_train_img = np.array(X_train_img)
     y_train = np.array(y_train)
     
-    # Calculate augmentation percentage
     original_count = len(X_test_img) / TEST_SIZE * (1 - TEST_SIZE)
     aug_percentage = (len(X_train_img) - original_count) / original_count * 100
     print(f"  Augmentation increase: {aug_percentage:.1f}%")
@@ -115,7 +101,7 @@ def train_svm():
     print(f"  Feature extraction time: {time.time() - start_time:.1f}s")
     print(f"  Feature dimensions: {X_train.shape[1]}")
     
-    # Step 5: Preprocessing (Scaling + PCA)
+    # Step 5: Preprocessing
     print("\n[5/7] Preprocessing features...")
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -126,7 +112,7 @@ def train_svm():
     X_test_pca = pca.transform(X_test_scaled)
     print(f"  PCA components: {pca.n_components_} (explained variance: {SVM_PCA_VARIANCE*100:.0f}%)")
     
-    # Step 6: Hyperparameter tuning
+    # Step 6: Extended hyperparameter search
     print("\n[6/7] Training SVM with GridSearchCV...")
     svm = SVC(
         kernel=SVM_KERNEL,
@@ -135,9 +121,10 @@ def train_svm():
         random_state=RANDOM_STATE
     )
     
+    # Extended parameter grid for better results
     param_grid = {
-        'C': SVM_C_RANGE,
-        'gamma': SVM_GAMMA_RANGE
+        'C': [0.1, 1, 5, 10, 50, 100],
+        'gamma': ['scale', 'auto', 0.001, 0.01, 0.1]
     }
     
     cv = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
@@ -167,22 +154,18 @@ def train_svm():
     accuracy = accuracy_score(y_test, y_pred)
     print(f"\n  Test Accuracy: {accuracy:.4f} ({accuracy*100:.2f}%)")
     
-    # Classification report
     print("\n  Classification Report:")
     print(classification_report(y_test, y_pred, target_names=PRIMARY_CLASSES))
     
-    # Confusion matrix
     print("\n  Confusion Matrix:")
     cm = confusion_matrix(y_test, y_pred)
     print(cm)
     
-    # Calculate optimal threshold for unknown rejection
     print("\n  Calculating rejection threshold...")
     optimal_threshold = calculate_optimal_threshold(
         best_model, X_test, y_test, scaler, pca
     )
     
-    # Evaluate with rejection
     max_probs = y_prob.max(axis=1)
     confident_mask = max_probs >= optimal_threshold
     
@@ -203,7 +186,6 @@ def train_svm():
     joblib.dump(pca, os.path.join(MODELS_PATH, "svm_pca.pkl"))
     joblib.dump(optimal_threshold, os.path.join(MODELS_PATH, "svm_threshold.pkl"))
     
-    # Also save in root for easy access
     joblib.dump(best_model, "svm_model.pkl")
     joblib.dump(scaler, "svm_scaler.pkl")
     joblib.dump(pca, "svm_pca.pkl")

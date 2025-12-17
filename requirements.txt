@@ -1,0 +1,22 @@
+# Material Stream Identification System
+# Python Dependencies
+
+# Core Scientific Computing
+numpy>=1.21.0
+scipy>=1.7.0
+
+# Machine Learning
+scikit-learn>=1.0.0
+scikit-image>=0.19.0
+
+# Computer Vision
+opencv-python>=4.5.0
+
+# Model Serialization
+joblib>=1.1.0
+
+# Progress Bar
+tqdm>=4.62.0
+
+# Optional: For enhanced performance
+# numba>=0.55.0

@@ -50,7 +50,7 @@ x_train, y_train = balance_dataset(x_train, y_train, target_count=500)
 # DATA AUGMENTATION (ON-THE-FLY)
 # -----------------------------
 datagen = tf.keras.preprocessing.image.ImageDataGenerator(
-    rotation_range=25,
+    rotation_range=25,  
     width_shift_range=0.1,
     height_shift_range=0.1,
     zoom_range=0.15,

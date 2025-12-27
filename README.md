@@ -86,7 +86,7 @@ test_set/
 
 #### Train SVM (Recommended - Highest Accuracy)
 ```bash
-python ImprovedTrain_SVM.py
+python Train_SVM.py
 ```
 
 **Expected Output:**
@@ -98,7 +98,7 @@ python ImprovedTrain_SVM.py
 
 #### Train k-NN (Faster Training)
 ```bash
-python ImprovedTrain_KNN.py
+python Train_KNN.py
 ```
 
 **Expected Output:**
@@ -108,7 +108,7 @@ python ImprovedTrain_KNN.py
 
 ### 4. Real-Time Classification
 ```bash
-python ImprovedRealtime_Camera.py
+python Realtime_Camera.py
 ```
 
 **Controls:**
